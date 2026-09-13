@@ -8,7 +8,7 @@ on:
 jobs:
   build-android:
     name: Build Android
-    runs-on: macos-15
+    runs-on: ubuntu-latest
     permissions:
       contents: write
 
@@ -21,6 +21,17 @@ jobs:
 
       - name: install cibuildwheel
         run: pip install cibuildwheel
+
+      # The emulator used by the on-device test-command needs KVM. GitHub's
+      # Linux runners expose /dev/kvm; widen its permissions so it's usable.
+      # Only the build-host arch (x86_64) is tested; arm64_v8a builds but
+      # skips on-device tests.
+      - name: Enable KVM
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' \
+            | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
 
       - name: setup Android NDK
         id: setup-ndk
