@@ -1,0 +1,69 @@
+name: Build and Publish pyjnius Wheels to R2
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+
+jobs:
+  build-android:
+    name: Build Android
+    runs-on: macos-15
+    permissions:
+      contents: write
+
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.13.8'
+
+      - name: install cibuildwheel
+        run: pip install cibuildwheel
+
+      - name: setup Android NDK
+        id: setup-ndk
+        uses: nttld/setup-ndk@v1
+        with:
+          ndk-version: r28c
+
+      - name: build wheels
+        env:
+          ANDROID_NDK_HOME: ${{ steps.setup-ndk.outputs.ndk-path }}
+        run: cibuildwheel --platform android --archs all --output-dir wheelhouse
+
+      - run: ls wheelhouse
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: pyjnius-android-wheels
+          path: wheelhouse/
+
+  publish-r2:
+    name: Publish to R2
+    needs: [build-android]
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: pyjnius-*-wheels
+          merge-multiple: true
+          path: wheels/
+
+      - name: configure aws cli for r2
+        run: |
+          aws configure set aws_access_key_id ${{ secrets.R2_ACCESS_KEY_ID }}
+          aws configure set aws_secret_access_key ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          aws configure set region auto
+
+      - name: upload wheels to r2
+        run: |
+          ENDPOINT="https://${{ secrets.R2_ACCOUNT_ID }}.r2.cloudflarestorage.com"
+          for FILE in wheels/*.whl; do
+            BASENAME=$(basename "$FILE")
+            echo "Uploading $BASENAME"
+            aws s3 cp "$FILE" "s3://kivyschool-pypi/packages/$BASENAME" \
+              --endpoint-url "$ENDPOINT"
+          done
